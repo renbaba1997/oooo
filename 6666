@@ -1,0 +1,118 @@
+#include<math.h>
+#include<iostream>
+#include<string.h>
+#include"MatPlot.h"
+#include<Windows.h>
+using namespace std;
+using namespace MatPlot;
+#define NUM_POINTS 1000 // 采样点1000个
+#define PI 3.1415926535798
+double m_signal[NUM_POINTS]; // 原始采样信号
+double xm[NUM_POINTS]; // 原始采样信号
+double m_signal_filter[NUM_POINTS]; // 滤波后信号
+double delta = 0;
+
+void creatsin() {
+	for (int i = 0; i < NUM_POINTS; i++) {
+		m_signal[i] = 1+0.6*sin(2*PI*20*delta)+2.0*sin(2.0*PI*5*delta); // 直流+正弦信号
+		xm[i] = delta;
+		delta += 1e-3; // 采样间隔0.001s
+	}
+}
+
+typedef struct
+{
+	int type;
+	float fl;
+}FILTERTYPE;  // 滤波器类型
+
+typedef struct
+{
+	FILTERTYPE type;
+	float ts; // 采样间隔时间
+	float dbgain; // 增益
+	float q;  // 品质因子
+	float amp; // 幅值
+	float a[3]; // a0,a1,a2
+	float b[3]; // b0,b1,b2
+	float x[3]; // x(n),x(n-1),x(n-2)
+	float y[2]; // y(n-1),y(n-2)
+}FILTERINFO, *LPFILTERINFO;
+
+#define FILTER_2ND_BP 5 // 2阶带通
+#define FILTER_2ND_BS 6 // 2阶带阻
+
+
+void Init_Filter(LPFILTERINFO fi, int zero)
+{
+	double  omega = 2 * PI*fi->type.fl*fi->ts;
+	double  sine = sin(omega);
+	double  cosine = cos(omega);
+	double  alpha = sine / (2 * fi->q);
+
+	fi->b[0] = fi->b[1] = fi->b[2] = fi->a[0] = fi->a[1] = fi->a[2] = 0;
+
+	switch (fi->type.type)
+	{
+	case FILTER_2ND_BP:
+		fi->a[0] = 1 + alpha;
+		fi->a[1] = (-2 * cosine) / fi->a[0];
+		fi->a[2] = (1 - alpha) / fi->a[0];
+		fi->b[0] = ((sine) / 2) / fi->a[0];
+		fi->b[1] = 0;
+		fi->b[2] = (-(sine) / 2) / fi->a[0];
+		break;
+	case FILTER_2ND_BS:
+		fi->a[0] = 1 + alpha;
+		fi->a[1] = (-2 * cosine) / fi->a[0];
+		fi->a[2] = (1 - alpha) / fi->a[0];
+		fi->b[0] = (sine / 2) / fi->a[0];
+		fi->b[1] = 0;
+		fi->b[2] = (-sine / 2) / fi->a[0];
+		break;
+	}
+	if (zero)
+		fi->x[0] = fi->x[1] = fi->x[2] = fi->y[0] = fi->y[1] = 0;
+}
+
+float Filter(LPFILTERINFO fi, float in)
+{
+	float f = in;
+
+	if (fi->type.type)
+	{
+		fi->x[2] = fi->x[1];
+		fi->x[1] = fi->x[0];
+		fi->x[0] = in;
+		f = fi->b[0] * fi->x[0] + fi->b[1] * fi->x[1] + fi->b[2] * fi->x[2] - fi->a[1] * fi->y[0] - fi->a[2] * fi->y[1];
+		fi->y[1] = fi->y[0];
+		fi->y[0] = f;
+	}
+	return f;
+}
+
+
+int main() {
+	creatsin();
+	FILTERINFO pre_filter_Vo;
+	memset(&pre_filter_Vo, 0, sizeof(FILTERINFO));
+	// 信号的增益不予改变，所以不去计算dbgain
+	pre_filter_Vo.type.type = FILTER_2ND_BP; // 二阶带通滤波器
+	pre_filter_Vo.ts = 1.0 / NUM_POINTS;
+	pre_filter_Vo.type.fl = 5; // 中心频率为1Hz
+	pre_filter_Vo.q = 1; // 品质因子为1，对中心频率信号滤波效果最佳
+	Init_Filter(&pre_filter_Vo, 1);
+
+	for (int i = 0; i < NUM_POINTS; i++)
+	{
+		m_signal_filter[i] = Filter(&pre_filter_Vo, m_signal[i]); // 滤波
+
+	}
+
+	MatPlotInit();
+	plot(xm,m_signal_filter,NUM_POINTS);
+	Sleep(10000);
+	MatPlotClose();
+
+    return 0;
+}
